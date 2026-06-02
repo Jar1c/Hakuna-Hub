@@ -1030,6 +1030,12 @@ AntiAFKTab:CreateToggle({
     end,
 })
 
+-- AUTO START ON LOAD
+task.spawn(function()
+    task.wait(1) -- wait para matapos mag load ang GUI
+    AntiAFKEngine:Start()
+end)
+
 AntiAFKTab:CreateSection("Mode Selection")
 
 AntiAFKTab:CreateSegmentedGroup({
