@@ -483,6 +483,6 @@ print("E - Waypoint Teleport (Default)")
 task.wait(2)
 Notify("Loaded", "Press RightShift to toggle UI", 5)
 
-
+--save
 
 
