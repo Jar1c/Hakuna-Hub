@@ -1018,7 +1018,7 @@ AntiAFKTab:CreateSection("Anti-AFK Control")
 
 AntiAFKTab:CreateToggle({
     Name = "Enable Anti-AFK",
-    CurrentValue = false,
+    CurrentValue = true,
     Callback = function(v)
         if v then
             AntiAFKEngine:Start()
