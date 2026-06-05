@@ -4,6 +4,7 @@
     - GUI: Auto opens on load
     - Teleport tab with Auto Return (NEW)
     - Mobile: Circular waypoint button (draggable), no fly button
+    - ESP: Toggle ON/OFF (NEW)
 ]]
 
 local Players = game:GetService("Players")
@@ -21,7 +22,7 @@ local State = {
     isGlobalNoclip = false,
     isClickTeleport = false,
     isFPSVisible = false,
-    isAntiAFK = true,      -- DEFAULT ON
+    isAntiAFK = true,
     waypointCFrame = nil,
     isWaitingForKey = false,
     waypointKey = Enum.KeyCode.E,
@@ -34,10 +35,9 @@ local State = {
     currentWalkSpeed = 16,
     flyToggleObj = nil,
     globalNoclipPlayers = {},
-    -- NEW AUTO RETURN
     isAutoReturn = false,
-    autoReturnDistance = 100,   -- default 100 studs
-    autoReturnToggleObj = nil,  -- para ma-set later
+    autoReturnDistance = 100,
+    autoReturnToggleObj = nil,
 }
 
 local Rayfield
@@ -124,7 +124,6 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         task.wait(0.3)
         StartFly()
     end
-    -- NEW: Auto Return on respawn
     if State.isAutoReturn and State.waypointCFrame then
         task.wait(0.3)
         local root = char:FindFirstChild("HumanoidRootPart")
@@ -343,7 +342,7 @@ local function trackPlayer(player)
 end
 
 MainTab:CreateToggle({
-    Name = "Global NoCollide (Others)",
+    Name = "Global NoCollide",
     CurrentValue = false,
     Callback = function(v)
         State.isGlobalNoclip = v
@@ -367,6 +366,110 @@ MainTab:CreateToggle({
             Disconnect("globalNoclipPlayerAdded")
             Disconnect("globalNoclipLoop")
             State.globalNoclipPlayers = {}
+        end
+    end,
+})
+
+-- =================== ESP ===================
+MainTab:CreateSection("ESP")
+
+local espEnabled = false
+local espConnections = {}
+local espLoopRunning = false
+
+local function ESPCleanup()
+    espLoopRunning = false
+
+    for _, conn in pairs(espConnections) do
+        if conn then
+            if typeof(conn) == "RBXScriptConnection" and conn.Connected then
+                conn:Disconnect()
+            elseif type(conn) == "table" and type(conn.Disconnect) == "function" then
+                conn:Disconnect()
+            end
+        end
+    end
+    espConnections = {}
+
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character then
+            local hl = v.Character:FindFirstChild("GetReal")
+            if hl then hl:Destroy() end
+        end
+    end
+
+    _G.Reantheajfdfjdgs = nil
+end
+
+local function ESPStart()
+    _G.FriendColor = Color3.fromRGB(0, 0, 255)
+    _G.EnemyColor = Color3.fromRGB(255, 0, 0)
+    _G.UseTeamColor = true
+    _G.Reantheajfdfjdgs = ":suifayhgvsdghfsfkajewfrhk321rk213kjrgkhj432rj34f67df"
+
+    local plr = LocalPlayer
+
+    local function espHighlight(target, color)
+        if target.Character then
+            if not target.Character:FindFirstChild("GetReal") then
+                local highlight = Instance.new("Highlight")
+                highlight.RobloxLocked = true
+                highlight.Name = "GetReal"
+                highlight.Adornee = target.Character
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.FillColor = color
+                highlight.Parent = target.Character
+            else
+                target.Character.GetReal.FillColor = color
+            end
+        end
+    end
+
+    -- Update highlights for current players
+    local function updateAll()
+        for _, v in pairs(Players:GetPlayers()) do
+            if v ~= plr then
+                local color = _G.UseTeamColor
+                    and v.TeamColor.Color
+                    or ((plr.TeamColor == v.TeamColor) and _G.FriendColor or _G.EnemyColor)
+                espHighlight(v, color)
+            end
+        end
+    end
+
+    updateAll()
+
+    -- Loop to continuously refresh highlights
+    espLoopRunning = true
+    task.spawn(function()
+        while espLoopRunning and espEnabled do
+            task.wait()
+            if not espEnabled then break end
+            updateAll()
+        end
+    end)
+
+    -- When a new player joins
+    local c1 = Players.PlayerAdded:Connect(function(v)
+        task.wait(0.5)
+        updateAll()
+    end)
+    table.insert(espConnections, c1)
+
+    -- When a player leaves, highlight auto‑removes with the character
+end
+
+MainTab:CreateToggle({
+    Name = "ESP",
+    CurrentValue = false,
+    Callback = function(v)
+        espEnabled = v
+        if v then
+            ESPStart()
+            Notify("ESP", "ESP Enabled (No NameTags)", 2)
+        else
+            ESPCleanup()
+            Notify("ESP", "ESP Disabled", 2)
         end
     end,
 })
@@ -423,7 +526,6 @@ local function enableAntiAFK()
     end)
 end
 
--- Auto-enable on script load
 task.spawn(enableAntiAFK)
 
 MainTab:CreateToggle({
@@ -515,7 +617,7 @@ TeleportTab:CreateToggle({
     end,
 })
 
--- =================== AUTO RETURN TO WAYPOINT (NEW) ===================
+-- =================== AUTO RETURN TO WAYPOINT ===================
 TeleportTab:CreateSection("Auto Return")
 
 TeleportTab:CreateSlider({
@@ -542,15 +644,11 @@ local function StartAutoReturn()
     Disconnect("autoReturnLoop")
 
     State.connections["autoReturnLoop"] = RunService.Heartbeat:Connect(function()
-        if not State.isAutoReturn or not State.waypointCFrame then
-            return
-        end
-
+        if not State.isAutoReturn or not State.waypointCFrame then return end
         local char = LocalPlayer.Character
         if not char then return end
         local root = char:FindFirstChild("HumanoidRootPart")
         if not root then return end
-
         local dist = (root.Position - State.waypointCFrame.Position).Magnitude
         if dist > State.autoReturnDistance then
             root.CFrame = State.waypointCFrame
@@ -582,7 +680,6 @@ State.autoReturnToggleObj = autoReturnToggle
 -- =================== SETTINGS TAB ===================
 SettingsTab:CreateSection("Display")
 
--- FPS Counter (white text, minimalist)
 local FPSGui = Instance.new("ScreenGui")
 FPSGui.Name = "FPSCounterGui"
 FPSGui.ResetOnSpawn = false
@@ -702,10 +799,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- =================== RESPAWN HANDLING ===================
--- (Already updated above with Auto Return)
-
--- =================== MOBILE UI (CIRCULAR WAYPOINT BUTTON - DRAGGABLE) ===================
+-- =================== MOBILE UI ===================
 local function CreateMobileButtons()
     if not UserInputService.TouchEnabled then return end
 
@@ -715,7 +809,6 @@ local function CreateMobileButtons()
     gui.DisplayOrder = 998
     gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-    -- Circular Waypoint Button (bilog, minimalist)
     local wpBtn = Instance.new("TextButton")
     wpBtn.Name = "WaypointButton"
     wpBtn.Size = UDim2.new(0, 55, 0, 55)
@@ -730,7 +823,6 @@ local function CreateMobileButtons()
     wpBtn.Draggable = true
     wpBtn.Parent = gui
 
-    -- Make it circular
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0.5, 0)
     corner.Parent = wpBtn
@@ -751,7 +843,6 @@ local function CreateMobileButtons()
     end)
 end
 
--- Wait for PlayerGui to be ready
 task.wait(0.5)
 CreateMobileButtons()
 
@@ -763,8 +854,6 @@ print("E - Waypoint Teleport (Default)")
 print("Mobile: Circular waypoint button (draggable)")
 
 task.wait(1)
-
--- Auto-open GUI on load
 pcall(function() Rayfield:ShowGui() end)
 
 task.wait(2)
