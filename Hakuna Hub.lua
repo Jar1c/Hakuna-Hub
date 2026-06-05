@@ -2,7 +2,7 @@
     ROBLOX UI SCRIPT - MINIMALIST (MOBILE-FRIENDLY)
     - Anti-AFK: Auto ON on load
     - GUI: Auto opens on load
-    - New Teleport tab
+    - Teleport tab with Auto Return (NEW)
     - Mobile: Circular waypoint button (draggable), no fly button
 ]]
 
@@ -34,6 +34,10 @@ local State = {
     currentWalkSpeed = 16,
     flyToggleObj = nil,
     globalNoclipPlayers = {},
+    -- NEW AUTO RETURN
+    isAutoReturn = false,
+    autoReturnDistance = 100,   -- default 100 studs
+    autoReturnToggleObj = nil,  -- para ma-set later
 }
 
 local Rayfield
@@ -119,6 +123,17 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if State.isFlying then
         task.wait(0.3)
         StartFly()
+    end
+    -- NEW: Auto Return on respawn
+    if State.isAutoReturn and State.waypointCFrame then
+        task.wait(0.3)
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root then
+            local dist = (root.Position - State.waypointCFrame.Position).Magnitude
+            if dist > State.autoReturnDistance then
+                root.CFrame = State.waypointCFrame
+            end
+        end
     end
 end)
 
@@ -500,6 +515,70 @@ TeleportTab:CreateToggle({
     end,
 })
 
+-- =================== AUTO RETURN TO WAYPOINT (NEW) ===================
+TeleportTab:CreateSection("Auto Return")
+
+TeleportTab:CreateSlider({
+    Name = "Return Distance (Studs)",
+    Range = {10, 500},
+    Increment = 10,
+    Suffix = " studs",
+    CurrentValue = 100,
+    Callback = function(v)
+        State.autoReturnDistance = v
+    end,
+})
+
+local function StartAutoReturn()
+    if not State.waypointCFrame then
+        Notify("Auto Return", "Set a waypoint first!", 2)
+        State.isAutoReturn = false
+        if State.autoReturnToggleObj then
+            State.autoReturnToggleObj:Set(false)
+        end
+        return
+    end
+
+    Disconnect("autoReturnLoop")
+
+    State.connections["autoReturnLoop"] = RunService.Heartbeat:Connect(function()
+        if not State.isAutoReturn or not State.waypointCFrame then
+            return
+        end
+
+        local char = LocalPlayer.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        local dist = (root.Position - State.waypointCFrame.Position).Magnitude
+        if dist > State.autoReturnDistance then
+            root.CFrame = State.waypointCFrame
+        end
+    end)
+
+    Notify("Auto Return", "Enabled | Distance: " .. State.autoReturnDistance .. " studs", 2)
+end
+
+local function StopAutoReturn()
+    Disconnect("autoReturnLoop")
+    Notify("Auto Return", "Disabled", 2)
+end
+
+local autoReturnToggle = TeleportTab:CreateToggle({
+    Name = "Auto Return to Waypoint",
+    CurrentValue = false,
+    Callback = function(v)
+        State.isAutoReturn = v
+        if v then
+            StartAutoReturn()
+        else
+            StopAutoReturn()
+        end
+    end,
+})
+State.autoReturnToggleObj = autoReturnToggle
+
 -- =================== SETTINGS TAB ===================
 SettingsTab:CreateSection("Display")
 
@@ -527,7 +606,7 @@ local FPSLabel = Instance.new("TextLabel")
 FPSLabel.Size = UDim2.new(1, 0, 1, 0)
 FPSLabel.BackgroundTransparency = 1
 FPSLabel.Text = "FPS: --"
-FPSLabel.TextColor3 = Color3.new(1, 1, 1)  -- WHITE TEXT
+FPSLabel.TextColor3 = Color3.new(1, 1, 1)
 FPSLabel.TextSize = 13
 FPSLabel.Font = Enum.Font.Gotham
 FPSLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -624,40 +703,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 -- =================== RESPAWN HANDLING ===================
-LocalPlayer.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
-
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.WalkSpeed = State.currentWalkSpeed
-    end
-
-    if State.isUnlimitedJump then
-        Disconnect("unlimitedJump")
-        State.connections["unlimitedJump"] = UserInputService.JumpRequest:Connect(function()
-            local c = LocalPlayer.Character
-            if c and c:FindFirstChildOfClass("Humanoid") then
-                c:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end)
-    end
-
-    if State.isSelfNoclip then
-        Disconnect("selfNoclipLoop")
-        State.connections["selfNoclipLoop"] = RunService.Stepped:Connect(function()
-            if not State.isSelfNoclip then return end
-            local c = LocalPlayer.Character
-            if not c then return end
-            for _, p in ipairs(c:GetDescendants()) do
-                if p:IsA("BasePart") then p.CanCollide = false end
-            end
-        end)
-    end
-
-    if State.isFlying then
-        StartFly()
-    end
-end)
+-- (Already updated above with Auto Return)
 
 -- =================== MOBILE UI (CIRCULAR WAYPOINT BUTTON - DRAGGABLE) ===================
 local function CreateMobileButtons()
@@ -672,7 +718,7 @@ local function CreateMobileButtons()
     -- Circular Waypoint Button (bilog, minimalist)
     local wpBtn = Instance.new("TextButton")
     wpBtn.Name = "WaypointButton"
-    wpBtn.Size = UDim2.new(0, 55, 0, 55)  -- Square size for circle
+    wpBtn.Size = UDim2.new(0, 55, 0, 55)
     wpBtn.Position = UDim2.new(1, -70, 0.5, -27)
     wpBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
     wpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -681,12 +727,12 @@ local function CreateMobileButtons()
     wpBtn.TextSize = 18
     wpBtn.AutoButtonColor = false
     wpBtn.Active = true
-    wpBtn.Draggable = true  -- DRAGGABLE!
+    wpBtn.Draggable = true
     wpBtn.Parent = gui
 
     -- Make it circular
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0.5, 0)  -- Full circle
+    corner.CornerRadius = UDim.new(0.5, 0)
     corner.Parent = wpBtn
 
     wpBtn.Activated:Connect(function()
@@ -722,9 +768,4 @@ task.wait(1)
 pcall(function() Rayfield:ShowGui() end)
 
 task.wait(2)
-Notify("Loaded", "Anti-AFK: ON | RightShift = UI | Mobile Ready", 5) 
-
-
-
-
--- new
+Notify("Loaded", "Anti-AFK: ON | RightShift = UI | Mobile Ready", 5)
