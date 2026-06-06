@@ -622,8 +622,8 @@ TeleportTab:CreateSection("Auto Return")
 
 TeleportTab:CreateSlider({
     Name = "Return Distance (Studs)",
-    Range = {10, 500},
-    Increment = 10,
+    Range = {1, 500},
+    Increment = 1,
     Suffix = " studs",
     CurrentValue = 100,
     Callback = function(v)
