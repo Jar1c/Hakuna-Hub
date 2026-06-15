@@ -1,10 +1,13 @@
 --[[
     HAKUNA HUB - FLUENT UI EDITION
-    Converted from Rayfield -> Fluent UI
     - All original logic preserved
     - Toggle Key: Left Alt
     - 4 Tabs: Main, Players, Teleport, Settings
     - NEW: Players tab with search + spectate/teleport per row
+    - NEW: Anti-Fling (NoCollide for other players)
+    - FIX: Fly/Waypoint keybind now use Fluent Keybind + OnChanged
+    - NEW: Theme selector in Settings
+    - NEW: Mobile UI hide/show button
     
     FIXES:
     - Fly loop moved to Heartbeat + velocity lerp → no frame drops
@@ -29,8 +32,8 @@ local State = {
     isClickTeleport   = false,
     isFPSVisible      = false,
     isAntiAFK         = true,
+    isAntiFling       = false,
     waypointCFrame    = nil,
-    isWaitingForKey   = false,
     waypointKey       = Enum.KeyCode.E,
     flyBodyVelocity   = nil,
     flyBodyGyro       = nil,
@@ -44,6 +47,7 @@ local State = {
     isAutoReturn      = false,
     autoReturnDistance = 100,
     autoReturnToggleObj = nil,
+    antiFlingPlayers   = {},
 }
 
 -- =================== SAFE LOAD FLUENT ===================
@@ -76,14 +80,8 @@ local Window = Fluent:CreateWindow({
 })
 
 -- =================== SMOOTH MINIMIZE/MAXIMIZE PATCH ===================
--- Intercept Fluent's minimize/maximize to add smooth tween transitions.
--- We locate the main window frame and tween its Size/Position instead of
--- letting Fluent snap it instantly.
 task.spawn(function()
-    task.wait(0.2) -- wait for Fluent to finish building the window
-
-    -- Find the root GUI frame Fluent uses (usually a Frame named "Main" or similar
-    -- inside a ScreenGui). We walk the PlayerGui/CoreGui to find it.
+    task.wait(0.2)
     local windowFrame = nil
     local function findWindowFrame()
         for _, gui in ipairs(game:GetService("CoreGui"):GetChildren()) do
@@ -96,7 +94,6 @@ task.spawn(function()
                 end
             end
         end
-        -- Fallback: check PlayerGui
         local pg = LocalPlayer:FindFirstChild("PlayerGui")
         if pg then
             for _, gui in ipairs(pg:GetChildren()) do
@@ -112,26 +109,16 @@ task.spawn(function()
         end
     end
     findWindowFrame()
-
     if not windowFrame then return end
-
-    -- Store the original full size so we can tween back to it
     local fullSize = windowFrame.Size
-
-    -- Smooth tween config
     local tweenIn  = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local tweenOut = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-
-    -- Watch for size changes that indicate minimize/maximize and smooth them
     local lastSize = windowFrame.Size
     windowFrame:GetPropertyChangedSignal("Size"):Connect(function()
         local newSize = windowFrame.Size
-        -- Detect a significant shrink (minimize) or restore (maximize)
         local shrinking = newSize.Y.Offset < lastSize.Y.Offset - 20
         local growing   = newSize.Y.Offset > lastSize.Y.Offset + 20
-
         if shrinking then
-            -- Cancel instant change, re-apply last size then tween to minimized
             local target = newSize
             windowFrame.Size = lastSize
             TweenService:Create(windowFrame, tweenOut, { Size = target }):Play()
@@ -140,7 +127,6 @@ task.spawn(function()
             windowFrame.Size = lastSize
             TweenService:Create(windowFrame, tweenIn, { Size = target }):Play()
         end
-
         lastSize = windowFrame.Size
     end)
 end)
@@ -180,7 +166,6 @@ local StartFly, StopFly
 -- =================== MAIN TAB ===================
 Tabs.Main:AddSection("Movement")
 
--- ---- WALKSPEED ----
 Tabs.Main:AddSlider("WalkSpeedSlider", {
     Title    = "WalkSpeed",
     Min      = 16,
@@ -199,9 +184,7 @@ Tabs.Main:AddSlider("WalkSpeedSlider", {
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.WalkSpeed = State.currentWalkSpeed
-    end
+    if hum then hum.WalkSpeed = State.currentWalkSpeed end
     if State.isFlying then
         task.wait(0.3)
         StartFly()
@@ -218,7 +201,6 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     end
 end)
 
--- ---- UNLIMITED JUMP ----
 Tabs.Main:AddToggle("UnlimitedJump", {
     Title    = "Unlimited Jump",
     Default  = false,
@@ -246,39 +228,24 @@ Tabs.Main:AddSlider("FlySpeedSlider", {
     Max      = 300,
     Default  = 50,
     Rounding = 0,
-    Callback = function(v)
-        State.flySpeed = v
-    end,
+    Callback = function(v) State.flySpeed = v end,
 })
 
-local flyKeyParagraph = Tabs.Main:AddParagraph({
+-- Fly Key using Fluent Keybind + OnChanged for reliable updates
+local flyKeybind = Tabs.Main:AddKeybind("FlyKeybind", {
     Title   = "Fly Key",
-    Content = "Current: [Q]",
+    Mode    = "Toggle",
+    Default = "Q",
+    Callback = function() end -- unused, we use OnChanged
 })
+flyKeybind:OnChanged(function()
+    local val = flyKeybind.Value
+    local ok, key = pcall(function() return Enum.KeyCode[val] end)
+    if ok and key then
+        State.flyKey = key
+    end
+end)
 
-Tabs.Main:AddButton({
-    Title    = "Change Fly Key",
-    Callback = function()
-        State.isWaitingForKey = "flyKey"
-        flyKeyParagraph:SetDesc("Press any key...")
-        Notify("Fly Key", "Press any key...", 2)
-    end,
-})
-
--- ============================================================
--- FIX: SMOOTH FLY — no more frame drops
---
--- Changes from original:
---  1. Loop runs on RunService.Heartbeat instead of RenderStepped.
---     RenderStepped blocks the render thread; Heartbeat runs alongside
---     physics and never causes visual stutter.
---  2. Velocity is lerped (linear interpolation) toward the target each
---     frame instead of being set instantly. This gives buttery-smooth
---     acceleration/deceleration with zero jank.
---  3. BodyGyro CFrame is also lerped so rotation changes are smooth.
---  4. BodyVelocity.P is reduced (from 9e4 → 1e4) so the physics engine
---     doesn't over-correct and cause micro-jitter.
--- ============================================================
 function StartFly()
     local char = LocalPlayer.Character
     if not char then return end
@@ -299,19 +266,18 @@ function StartFly()
     local bv = Instance.new("BodyVelocity")
     bv.Velocity  = Vector3.zero
     bv.MaxForce  = Vector3.new(1e5, 1e5, 1e5)
-    bv.P         = 1e4          -- FIX: lower P → smoother, less jitter
+    bv.P         = 1e4
     bv.Parent    = root
     State.flyBodyVelocity = bv
 
     local bg = Instance.new("BodyGyro")
     bg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-    bg.P         = 1e4          -- FIX: lower P → smoother rotation
-    bg.D         = 50           -- FIX: lower D → less oscillation
+    bg.P         = 1e4
+    bg.D         = 50
     bg.CFrame    = root.CFrame
     bg.Parent    = root
     State.flyBodyGyro = bg
 
-    -- FIX: use Heartbeat (not RenderStepped) to avoid blocking the render thread
     Disconnect("flyLoop")
     State.connections["flyLoop"] = RunService.Heartbeat:Connect(function(dt)
         if not State.isFlying then return end
@@ -327,24 +293,16 @@ function StartFly()
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or
-           UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
             move -= Vector3.new(0, 1, 0)
         end
 
-        local targetVelocity = move.Magnitude > 0
-            and move.Unit * State.flySpeed
-            or Vector3.zero
-
-        -- FIX: lerp velocity for smooth acceleration / deceleration
-        -- lerpFactor: higher = snappier, lower = more floaty. 12 feels natural.
+        local targetVelocity = move.Magnitude > 0 and move.Unit * State.flySpeed or Vector3.zero
         local lerpFactor = math.clamp(12 * dt, 0, 1)
 
         if State.flyBodyVelocity and State.flyBodyVelocity.Parent then
             State.flyBodyVelocity.Velocity = State.flyBodyVelocity.Velocity:Lerp(targetVelocity, lerpFactor)
         end
-
-        -- FIX: slerp the gyro CFrame for smooth rotation instead of instant snap
         if State.flyBodyGyro and State.flyBodyGyro.Parent then
             State.flyBodyGyro.CFrame = State.flyBodyGyro.CFrame:Lerp(cam.CFrame, lerpFactor)
         end
@@ -477,6 +435,62 @@ Tabs.Main:AddToggle("GlobalNoclip", {
     end,
 })
 
+-- =================== ANTI‑FLING ===================
+Tabs.Main:AddSection("Anti‑Fling")
+
+local function antiFlingDisableCollide(part)
+    if part:IsA("BasePart") and part.CanCollide then
+        part.CanCollide = false
+    end
+end
+
+local function antiFlingTrackCharacter(character)
+    for _, part in ipairs(character:GetChildren()) do
+        antiFlingDisableCollide(part)
+    end
+    character.ChildAdded:Connect(function(child)
+        antiFlingDisableCollide(child)
+    end)
+end
+
+local function antiFlingTrackPlayer(player)
+    if player == LocalPlayer then return end
+    if player.Character then
+        antiFlingTrackCharacter(player.Character)
+    end
+    player.CharacterAdded:Connect(antiFlingTrackCharacter)
+    State.antiFlingPlayers[player] = true
+end
+
+Tabs.Main:AddToggle("AntiFlingToggle", {
+    Title    = "Anti‑Fling (NoCollide Others)",
+    Default  = false,
+    Callback = function(v)
+        State.isAntiFling = v
+        if v then
+            for _, player in ipairs(Players:GetPlayers()) do
+                antiFlingTrackPlayer(player)
+            end
+            State.connections["antiFlingPlayerAdded"] = Players.PlayerAdded:Connect(antiFlingTrackPlayer)
+            State.connections["antiFlingLoop"] = RunService.RenderStepped:Connect(function()
+                if not State.isAntiFling then return end
+                for player, _ in pairs(State.antiFlingPlayers) do
+                    local character = player.Character
+                    if character then
+                        for _, part in ipairs(character:GetChildren()) do
+                            antiFlingDisableCollide(part)
+                        end
+                    end
+                end
+            end)
+        else
+            Disconnect("antiFlingPlayerAdded")
+            Disconnect("antiFlingLoop")
+            State.antiFlingPlayers = {}
+        end
+    end,
+})
+
 -- ---- ESP ----
 Tabs.Main:AddSection("ESP")
 
@@ -486,7 +500,6 @@ local espLoopRunning = false
 
 local function ESPCleanup()
     espLoopRunning = false
-
     for _, conn in pairs(espConnections) do
         if conn then
             if typeof(conn) == "RBXScriptConnection" and conn.Connected then
@@ -497,14 +510,12 @@ local function ESPCleanup()
         end
     end
     espConnections = {}
-
     for _, v in pairs(Players:GetPlayers()) do
         if v ~= LocalPlayer and v.Character then
             local hl = v.Character:FindFirstChild("GetReal")
             if hl then hl:Destroy() end
         end
     end
-
     _G.Reantheajfdfjdgs = nil
 end
 
@@ -513,7 +524,6 @@ local function ESPStart()
     _G.EnemyColor  = Color3.fromRGB(255, 0, 0)
     _G.UseTeamColor = true
     _G.Reantheajfdfjdgs = ":suifayhgvsdghfsfkajewfrhk321rk213kjrgkhj432rj34f67df"
-
     local plr = LocalPlayer
 
     local function espHighlight(target, color)
@@ -544,7 +554,6 @@ local function ESPStart()
     end
 
     updateAll()
-
     espLoopRunning = true
     task.spawn(function()
         while espLoopRunning and espEnabled do
@@ -576,79 +585,7 @@ Tabs.Main:AddToggle("ESPToggle", {
     end,
 })
 
--- ---- ANTI-AFK ----
-Tabs.Main:AddSection("Anti-AFK")
-
-local function enableAntiAFK()
-    State.connections["antiAFK"] = LocalPlayer.Idled:Connect(function()
-        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-        task.wait(1)
-        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-    end)
-
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "AFK_Notice"
-    gui.ResetOnSpawn = false
-    gui.IgnoreGuiInset = true
-    gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 300, 0, 36)
-    frame.Position = UDim2.new(0.5, 0, 0, 60)
-    frame.AnchorPoint = Vector2.new(0.5, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-    frame.BorderSizePixel = 0
-    frame.Parent = gui
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = frame
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -20, 1, 0)
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = "Anti-AFK Enabled"
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 14
-    label.TextColor3 = Color3.fromRGB(200, 200, 200)
-    label.Parent = frame
-
-    TweenService:Create(frame, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-        Position = UDim2.new(0.5, 0, 0, 80)
-    }):Play()
-
-    task.delay(10, function()
-        local out = TweenService:Create(frame, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
-            Position = UDim2.new(0.5, 0, 0, -40)
-        })
-        out:Play()
-        out.Completed:Wait()
-        gui:Destroy()
-    end)
-end
-
-task.spawn(enableAntiAFK)
-
-Tabs.Main:AddToggle("AntiAFKToggle", {
-    Title    = "Anti-AFK",
-    Default  = true,
-    Callback = function(v)
-        State.isAntiAFK = v
-        if v then
-            enableAntiAFK()
-            Notify("Anti-AFK", "Anti-AFK Enabled", 3)
-        else
-            Disconnect("antiAFK")
-            Notify("Anti-AFK", "Anti-AFK Disabled", 2)
-        end
-    end,
-})
-
--- ============================================================
---                  PLAYERS TAB
--- ============================================================
-
+-- =================== PLAYERS TAB ===================
 local CurrentSpectateTarget = nil
 
 local function ReturnCameraToSelf()
@@ -755,11 +692,6 @@ task.spawn(function()
     end
 end)
 
--- ============================================================
--- FIX: SMOOTH BUTTON ANIMATIONS
--- All hover/press transitions now use consistent TweenInfo with
--- Quint easing for a polished, Fluent-native feel.
--- ============================================================
 local SMOOTH_HOVER  = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local SMOOTH_PRESS  = TweenInfo.new(0.08, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local SMOOTH_LEAVE  = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -802,7 +734,6 @@ local function MakeFluentMiniButton(parent, opts)
         math.clamp(baseColor.B - 0.12, 0, 1)
     )
 
-    -- FIX: smooth tweens instead of instant color changes
     btn.MouseEnter:Connect(function()
         TweenService:Create(btn, SMOOTH_HOVER, { BackgroundColor3 = hoverColor }):Play()
     end)
@@ -836,17 +767,12 @@ local function RefreshPlayerHighlights()
 end
 _G.__HakunaRefreshPlayerHighlights = RefreshPlayerHighlights
 
--- ============================================================
--- FIX: SMOOTH ROW ENTRY ANIMATION
--- Each player row fades/slides in when the list is rebuilt,
--- giving a clean staggered entrance instead of a pop-in.
--- ============================================================
 local function CreatePlayerRow(player, order)
     local row = Instance.new("Frame")
     row.Name = "Row_" .. player.Name
     row.Size = UDim2.new(1, 0, 0, 34)
     row.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    row.BackgroundTransparency = 1          -- FIX: start transparent, fade in
+    row.BackgroundTransparency = 1
     row.BorderSizePixel = 0
     row.LayoutOrder = order
     row.Parent = PlayerListFrame
@@ -858,7 +784,7 @@ local function CreatePlayerRow(player, order)
     local rs = Instance.new("UIStroke")
     rs.Color = Color3.fromRGB(60, 60, 60)
     rs.Thickness = 1
-    rs.Transparency = 1                     -- FIX: start transparent
+    rs.Transparency = 1
     rs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     rs.Parent = row
 
@@ -867,7 +793,6 @@ local function CreatePlayerRow(player, order)
     pad.PaddingRight = UDim.new(0, 8)
     pad.Parent = row
 
-    -- FIX: smooth row hover using consistent tween config
     row.MouseEnter:Connect(function()
         TweenService:Create(row, SMOOTH_HOVER, { BackgroundColor3 = Color3.fromRGB(40, 40, 40) }):Play()
     end)
@@ -875,7 +800,6 @@ local function CreatePlayerRow(player, order)
         TweenService:Create(row, SMOOTH_LEAVE, { BackgroundColor3 = Color3.fromRGB(30, 30, 30) }):Play()
     end)
 
-    -- FIX: staggered fade-in (each row slightly delayed by its order index)
     task.delay(order * 0.03, function()
         if not row.Parent then return end
         TweenService:Create(row, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
@@ -908,10 +832,7 @@ local function CreatePlayerRow(player, order)
         Text        = "👁",
         TextSize    = 14,
     })
-
-    spectateBtn.MouseButton1Click:Connect(function()
-        ToggleSpectate(player)
-    end)
+    spectateBtn.MouseButton1Click:Connect(function() ToggleSpectate(player) end)
 
     local tpBaseColor = Color3.fromRGB(230, 130, 35)
     local tpBtn = MakeFluentMiniButton(row, {
@@ -922,10 +843,7 @@ local function CreatePlayerRow(player, order)
         Text        = "🚀",
         TextSize    = 14,
     })
-
-    tpBtn.MouseButton1Click:Connect(function()
-        TeleportToPlayer(player)
-    end)
+    tpBtn.MouseButton1Click:Connect(function() TeleportToPlayer(player) end)
 
     PlayerRowRefs[player] = {
         spectateBtn = spectateBtn,
@@ -947,9 +865,7 @@ local function RefreshPlayerList()
             table.insert(list, p)
         end
     end
-    table.sort(list, function(a, b)
-        return a.Name:lower() < b.Name:lower()
-    end)
+    table.sort(list, function(a, b) return a.Name:lower() < b.Name:lower() end)
 
     local search = _G.__HakunaPlayerSearch or ""
     local visibleCount = 0
@@ -1027,19 +943,20 @@ Tabs.Teleport:AddButton({
     end,
 })
 
-local waypointKeyParagraph = Tabs.Teleport:AddParagraph({
-    Title   = "Waypoint Keybind",
-    Content = "Current: [E]",
+-- Waypoint Keybind with OnChanged
+local waypointKeybind = Tabs.Teleport:AddKeybind("WaypointKeybind", {
+    Title   = "Waypoint Key",
+    Mode    = "Toggle",
+    Default = "E",
+    Callback = function() end
 })
-
-Tabs.Teleport:AddButton({
-    Title    = "Change Keybind",
-    Callback = function()
-        State.isWaitingForKey = "waypointKey"
-        waypointKeyParagraph:SetDesc("Press any key...")
-        Notify("Keybind", "Press any key...", 2)
-    end,
-})
+waypointKeybind:OnChanged(function()
+    local val = waypointKeybind.Value
+    local ok, key = pcall(function() return Enum.KeyCode[val] end)
+    if ok and key then
+        State.waypointKey = key
+    end
+end)
 
 Tabs.Teleport:AddSection("Click Teleport")
 Tabs.Teleport:AddToggle("ClickTeleport", {
@@ -1073,9 +990,7 @@ Tabs.Teleport:AddSlider("AutoReturnDist", {
     Max      = 500,
     Default  = 100,
     Rounding = 0,
-    Callback = function(v)
-        State.autoReturnDistance = v
-    end,
+    Callback = function(v) State.autoReturnDistance = v end,
 })
 
 local function StartAutoReturn()
@@ -1087,9 +1002,7 @@ local function StartAutoReturn()
         end
         return
     end
-
     Disconnect("autoReturnLoop")
-
     State.connections["autoReturnLoop"] = RunService.Heartbeat:Connect(function()
         if not State.isAutoReturn or not State.waypointCFrame then return end
         local char = LocalPlayer.Character
@@ -1101,7 +1014,6 @@ local function StartAutoReturn()
             root.CFrame = State.waypointCFrame
         end
     end)
-
     Notify("Auto Return", "Enabled | Distance: " .. State.autoReturnDistance .. " studs", 2)
 end
 
@@ -1182,6 +1094,92 @@ Tabs.Settings:AddToggle("FPSCounterToggle", {
     end,
 })
 
+-- =================== THEME SELECTOR ===================
+Tabs.Settings:AddSection("Theme")
+
+local themes = {"Dark", "Light", "Darker", "Mocha", "Ocean", "Amethyst"}
+local themeDropdown = Tabs.Settings:AddDropdown("ThemeDropdown", {
+    Title    = "UI Theme",
+    Values   = themes,
+    Default  = "Dark",
+    Multi    = false,
+    Callback = function(selected)
+        pcall(function()
+            Window:SetTheme(selected)
+            Notify("Theme", "Changed to " .. selected, 2)
+        end)
+    end,
+})
+
+-- =================== ANTI‑AFK (moved from Main) ===================
+Tabs.Settings:AddSection("Anti-AFK")
+
+local function enableAntiAFK()
+    State.connections["antiAFK"] = LocalPlayer.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    end)
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "AFK_Notice"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 36)
+    frame.Position = UDim2.new(0.5, 0, 0, 60)
+    frame.AnchorPoint = Vector2.new(0.5, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "Anti-AFK Enabled"
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 14
+    label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    label.Parent = frame
+
+    TweenService:Create(frame, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 0, 0, 80)
+    }):Play()
+
+    task.delay(10, function()
+        local out = TweenService:Create(frame, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+            Position = UDim2.new(0.5, 0, 0, -40)
+        })
+        out:Play()
+        out.Completed:Wait()
+        gui:Destroy()
+    end)
+end
+
+task.spawn(enableAntiAFK)
+
+Tabs.Settings:AddToggle("AntiAFKToggle", {
+    Title    = "Anti-AFK",
+    Default  = true,
+    Callback = function(v)
+        State.isAntiAFK = v
+        if v then
+            enableAntiAFK()
+            Notify("Anti-AFK", "Anti-AFK Enabled", 3)
+        else
+            Disconnect("antiAFK")
+            Notify("Anti-AFK", "Anti-AFK Disabled", 2)
+        end
+    end,
+})
+
 Tabs.Settings:AddSection("Keybinds")
 
 Tabs.Settings:AddKeybind("ToggleUIKeybind", {
@@ -1216,22 +1214,7 @@ end
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
-    if State.isWaitingForKey then
-        if input.KeyCode ~= Enum.KeyCode.Unknown then
-            if State.isWaitingForKey == "waypointKey" then
-                State.waypointKey = input.KeyCode
-                waypointKeyParagraph:SetDesc("Current: [" .. input.KeyCode.Name .. "]")
-                Notify("Keybind", "Waypoint key set to: " .. input.KeyCode.Name, 2)
-            elseif State.isWaitingForKey == "flyKey" then
-                State.flyKey = input.KeyCode
-                flyKeyParagraph:SetDesc("Current: [" .. input.KeyCode.Name .. "]")
-                Notify("Fly Key", "Fly key set to: " .. input.KeyCode.Name, 2)
-            end
-            State.isWaitingForKey = false
-        end
-        return
-    end
-
+    -- Fly key toggle
     if input.KeyCode == State.flyKey then
         State.isFlying = not State.isFlying
         if State.isFlying then
@@ -1245,6 +1228,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
+    -- Waypoint teleport
     if input.KeyCode == State.waypointKey and State.waypointCFrame then
         local char = LocalPlayer.Character
         if char then
@@ -1258,16 +1242,14 @@ end)
 
 -- =================== MOBILE UI ===================
 local function CreateMobileButtons()
-    if not UserInputService.TouchEnabled then return end
-
     local gui = Instance.new("ScreenGui")
     gui.Name = "MobileButtons"
     gui.ResetOnSpawn = false
     gui.DisplayOrder = 998
     gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
+    -- Waypoint teleport button (unchanged)
     local wpBtn = Instance.new("TextButton")
-    wpBtn.Name = "WaypointButton"
     wpBtn.Size = UDim2.new(0, 55, 0, 55)
     wpBtn.Position = UDim2.new(1, -70, 0.5, -27)
     wpBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
@@ -1298,6 +1280,39 @@ local function CreateMobileButtons()
             Notify("Waypoint", "No waypoint set! Use UI to set first.", 2)
         end
     end)
+
+    -- ---- NEW: Mobile UI Toggle Button ----
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 50, 0, 50)
+    toggleBtn.Position = UDim2.new(0, 20, 0, 20)           -- top-left corner
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.Text = "⏻"
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.TextSize = 20
+    toggleBtn.AutoButtonColor = false
+    toggleBtn.Active = true
+    toggleBtn.Draggable = true
+    toggleBtn.Parent = gui
+
+    local corner2 = Instance.new("UICorner")
+    corner2.CornerRadius = UDim.new(0.5, 0)
+    corner2.Parent = toggleBtn
+
+    -- Find the Fluent window main ScreenGui (CoreGui) and toggle its visibility
+    local fluentGui = nil
+    for _, obj in ipairs(game:GetService("CoreGui"):GetChildren()) do
+        if obj:IsA("ScreenGui") and obj.Name ~= "MobileButtons" and obj.Name ~= "FPSCounterGui" then
+            fluentGui = obj
+            break
+        end
+    end
+
+    toggleBtn.Activated:Connect(function()
+        if fluentGui then
+            fluentGui.Enabled = not fluentGui.Enabled
+        end
+    end)
 end
 
 task.wait(0.5)
@@ -1308,13 +1323,8 @@ Window:SelectTab(1)
 
 pcall(function() Fluent:Notify({
     Title    = "Hakuna Hub Loaded",
-    Content  = "Anti-AFK: ON | LeftAlt = Toggle UI | Mobile Ready",
+    Content  = "Anti-AFK: ON | Anti-Fling ready | Theme & Mobile Toggle added",
     Duration = 5,
 }) end)
 
-print("Hakuna Hub (Fluent) Loaded")
-print("Anti-AFK: Auto ON")
-print("LeftAlt - Toggle UI")
-print("Q - Toggle Fly (Default)")
-print("E - Waypoint Teleport (Default)")
-print("Mobile: Circular waypoint button (draggable)")
+print("Hakuna Hub (Fluent) Loaded – Complete with fixes")
