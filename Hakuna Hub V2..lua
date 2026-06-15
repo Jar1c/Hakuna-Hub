@@ -1,13 +1,13 @@
 --[[
     HAKUNA HUB - FLUENT UI EDITION
     - All original logic preserved
-    - Toggle Key: Left Alt
+    - Toggle Key: Left Alt (keyboard) + Mobile button (native Fluent)
     - 4 Tabs: Main, Players, Teleport, Settings
     - NEW: Players tab with search + spectate/teleport per row
     - NEW: Anti-Fling (NoCollide for other players)
     - FIX: Fly/Waypoint keybind now use Fluent Keybind + OnChanged
     - NEW: Theme selector in Settings
-    - NEW: Mobile UI hide/show button
+    - NEW: Mobile toggle now uses Fluent's built-in Mobile support
     
     FIXES:
     - Fly loop moved to Heartbeat + velocity lerp → no frame drops
@@ -69,7 +69,7 @@ do
     end)
 end
 
--- =================== WINDOW ===================
+-- =================== WINDOW (with built-in mobile toggle) ===================
 local Window = Fluent:CreateWindow({
     Title         = "Hakuna Hub V2.",
     TabWidth      = 160,
@@ -77,6 +77,7 @@ local Window = Fluent:CreateWindow({
     Acrylic       = true,
     Theme         = "Dark",
     MinimizeKey   = State.toggleKey,
+    Mobile        = true     -- ← built‑in mobile toggle button
 })
 
 -- =================== SMOOTH MINIMIZE/MAXIMIZE PATCH ===================
@@ -1240,7 +1241,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- =================== MOBILE UI ===================
+-- =================== MOBILE WAYPOINT BUTTON ONLY ===================
+-- (Mobile GUI toggle is now handled by Fluent's built-in Mobile = true)
 local function CreateMobileButtons()
     local gui = Instance.new("ScreenGui")
     gui.Name = "MobileButtons"
@@ -1248,7 +1250,7 @@ local function CreateMobileButtons()
     gui.DisplayOrder = 998
     gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-    -- Waypoint teleport button (unchanged)
+    -- Waypoint teleport button
     local wpBtn = Instance.new("TextButton")
     wpBtn.Size = UDim2.new(0, 55, 0, 55)
     wpBtn.Position = UDim2.new(1, -70, 0.5, -27)
@@ -1280,39 +1282,6 @@ local function CreateMobileButtons()
             Notify("Waypoint", "No waypoint set! Use UI to set first.", 2)
         end
     end)
-
-    -- ---- NEW: Mobile UI Toggle Button ----
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 50, 0, 50)
-    toggleBtn.Position = UDim2.new(0, 20, 0, 20)           -- top-left corner
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleBtn.Text = "⏻"
-    toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.TextSize = 20
-    toggleBtn.AutoButtonColor = false
-    toggleBtn.Active = true
-    toggleBtn.Draggable = true
-    toggleBtn.Parent = gui
-
-    local corner2 = Instance.new("UICorner")
-    corner2.CornerRadius = UDim.new(0.5, 0)
-    corner2.Parent = toggleBtn
-
-    -- Find the Fluent window main ScreenGui (CoreGui) and toggle its visibility
-    local fluentGui = nil
-    for _, obj in ipairs(game:GetService("CoreGui"):GetChildren()) do
-        if obj:IsA("ScreenGui") and obj.Name ~= "MobileButtons" and obj.Name ~= "FPSCounterGui" then
-            fluentGui = obj
-            break
-        end
-    end
-
-    toggleBtn.Activated:Connect(function()
-        if fluentGui then
-            fluentGui.Enabled = not fluentGui.Enabled
-        end
-    end)
 end
 
 task.wait(0.5)
@@ -1323,8 +1292,8 @@ Window:SelectTab(1)
 
 pcall(function() Fluent:Notify({
     Title    = "Hakuna Hub Loaded",
-    Content  = "Anti-AFK: ON | Anti-Fling ready | Theme & Mobile Toggle added",
+    Content  = "Anti-AFK: ON | Mobile toggle built-in | Theme ready",
     Duration = 5,
 }) end)
 
-print("Hakuna Hub (Fluent) Loaded – Complete with fixes")
+print("Hakuna Hub (Fluent) Loaded – Fully patched & mobile optimized")
