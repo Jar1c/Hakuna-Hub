@@ -361,10 +361,11 @@ Fluent:RegisterCustomTheme("EmeraldDark", {
 })
 
 -- =================== WINDOW ===================
+local isMobile = UserInputService.TouchEnabled
 local Window = Fluent:CreateWindow({
         Title            = "Hakuna Hub V2",
-        TabWidth         = 130,
-        Size             = UDim2.fromOffset(580, 460),
+        TabWidth         = isMobile and 110 or 130,
+        Size             = isMobile and UDim2.fromOffset(480, 360) or UDim2.fromOffset(580, 460),
         Acrylic          = true,
         Theme            = "Midnight",
         MinimizeKey      = Enum.KeyCode.LeftControl,
