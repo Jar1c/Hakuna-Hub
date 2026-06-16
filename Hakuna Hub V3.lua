@@ -1,3 +1,8 @@
+if _G.HakunaHubLoaded then
+    return
+end
+_G.HakunaHubLoaded = true
+
 --[[
     FLUENT PRO + HAKUNA HUB INTEGRATED
     - All Fluent Moded features preserved
@@ -6,6 +11,13 @@
 ]]
 
 local Fluent = loadstring(game:HttpGet("https://github.com/StyearX/Fluent-Modded/releases/download/Fluent/FluentPro"))()
+
+local isLoaded = false
+local originalNotify = Fluent.Notify
+function Fluent:Notify(data)
+    if not isLoaded then return end
+    originalNotify(self, data)
+end
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -356,8 +368,7 @@ local Window = Fluent:CreateWindow({
         Acrylic          = true,
         Theme            = "Midnight",
         MinimizeKey      = Enum.KeyCode.LeftControl,
-        Search           = true,
-        TabLogo          = "rbxassetid://75683776827684",
+        Search           = false,
         UserInfoTop      = true,
         UserInfoTitle    = "Hakuna Hub",
         UserInfoSubtitle = LocalPlayer.Name,
@@ -378,10 +389,18 @@ local TabComponents = Window:AddTab({ Title = "Components", Icon = "solar/widget
 local TabSettings = Window:AddTab({ Title = "Settings", Icon = "solar/settings-bold" })
 
 -- =================== HELPER NOTIFY ===================
+local _notifyCooldowns = {}
+local NOTIFY_COOLDOWN   = 2 -- seconds; prevents same-title spam
 local function Notify(title, content, duration)
+    local now = tick()
+    local key = tostring(title)
+    if _notifyCooldowns[key] and (now - _notifyCooldowns[key]) < NOTIFY_COOLDOWN then
+        return -- drop duplicate within cooldown window
+    end
+    _notifyCooldowns[key] = now
     pcall(function()
         Fluent:Notify({
-            Title    = tostring(title),
+            Title    = key,
             Content  = tostring(content),
             Duration = duration or 3,
         })
@@ -1848,47 +1867,6 @@ local function enableAntiAFK()
         task.wait(1)
         VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
     end)
-
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "AFK_Notice"
-    gui.ResetOnSpawn = false
-    gui.IgnoreGuiInset = true
-    gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 300, 0, 36)
-    frame.Position = UDim2.new(0.5, 0, 0, 60)
-    frame.AnchorPoint = Vector2.new(0.5, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-    frame.BorderSizePixel = 0
-    frame.Parent = gui
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = frame
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -20, 1, 0)
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = "Anti-AFK Enabled"
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 14
-    label.TextColor3 = Color3.fromRGB(200, 200, 200)
-    label.Parent = frame
-
-    TweenService:Create(frame, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-        Position = UDim2.new(0.5, 0, 0, 80)
-    }):Play()
-
-    task.delay(10, function()
-        local out = TweenService:Create(frame, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
-            Position = UDim2.new(0.5, 0, 0, -40)
-        })
-        out:Play()
-        out.Completed:Wait()
-        gui:Destroy()
-    end)
 end
 
 task.spawn(enableAntiAFK)
@@ -2107,7 +2085,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 -- =================== FINALIZE ===================
-Fluent:Notify({ Title = "Hakuna Hub + FluentPro", Content = "Fully loaded! Enjoy the best of both worlds.", Type = "Success", Duration = 4 })
+isLoaded = true
 task.delay(0.5, function()
         Window:SelectTab(1)
 end)
