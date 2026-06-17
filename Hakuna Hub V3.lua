@@ -1949,17 +1949,17 @@ mainBtn.Text = ""
 mainBtn.Visible = true
 Instance.new("UICorner", mainBtn)
 
-local sizeBackMulti = 0.3
-local backgroundImage = Instance.new("ImageLabel")
-backgroundImage.Name = "RotatingBackground"
-backgroundImage.Parent = mainBtn
-backgroundImage.Size = UDim2.new(1.5 + sizeBackMulti, 0, 1.5 + sizeBackMulti, 0)
-backgroundImage.Position = UDim2.new(0.5, 0, 0.5, 0)
-backgroundImage.AnchorPoint = Vector2.new(0.5, 0.5)
-backgroundImage.BackgroundTransparency = 1
-backgroundImage.Image = "rbxassetid://92062295706713"
-backgroundImage.SizeConstraint = Enum.SizeConstraint.RelativeXX
-backgroundImage.ZIndex = 0
+-- local sizeBackMulti = 0.3
+-- local backgroundImage = Instance.new("ImageLabel")
+-- backgroundImage.Name = "RotatingBackground"
+-- backgroundImage.Parent = mainBtn
+-- backgroundImage.Size = UDim2.new(1.5 + sizeBackMulti, 0, 1.5 + sizeBackMulti, 0)
+-- backgroundImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+-- backgroundImage.AnchorPoint = Vector2.new(0.5, 0.5)
+-- backgroundImage.BackgroundTransparency = 1
+-- backgroundImage.Image = "rbxassetid://92062295706713"
+-- backgroundImage.SizeConstraint = Enum.SizeConstraint.RelativeXX
+-- backgroundImage.ZIndex = 0
 
 local frontImage = Instance.new("ImageLabel")
 frontImage.Name = "StaticIcon"
@@ -1968,8 +1968,8 @@ frontImage.Size = UDim2.fromOffset(55, 55)
 frontImage.Position = UDim2.new(0.5, 0, 0.5, 0)
 frontImage.AnchorPoint = Vector2.new(0.5, 0.5)
 frontImage.BackgroundTransparency = 1
-frontImage.Image = "rbxassetid://126113649238951"
-frontImage.ZIndex = 1
+frontImage.Image = "rbxassetid://131680574108351"
+frontImage.ZIndex = 1 
 Instance.new("UICorner", frontImage).CornerRadius = UDim.new(0.2, 0)
 
 local rotation = 0
