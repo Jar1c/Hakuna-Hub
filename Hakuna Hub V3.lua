@@ -2074,7 +2074,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
-    if input.KeyCode == State.waypointKey and State.waypointCFrame then
+    if (input.KeyCode == State.waypointKey or input.KeyCode == Enum.KeyCode.ButtonL2) and State.waypointCFrame then
         local char = LocalPlayer.Character
         if char then
             local root = char:FindFirstChild("HumanoidRootPart")
