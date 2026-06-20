@@ -1849,7 +1849,8 @@ task.wait()
 local secButtons = TabSettings:AddSection("Buttons")
 task.wait()
 
-secButtons:AddToggle("HideUiBtn", {
+local btnToggles = {}
+btnToggles.ui = secButtons:AddToggle("HideUiBtn", {
     Title    = "Show UI Button",
     Icon     = "solar/menu-bold",
     Default  = true,
@@ -1861,7 +1862,7 @@ secButtons:AddToggle("HideUiBtn", {
         end
     end,
 })
-secButtons:AddToggle("HideWpBtn", {
+btnToggles.wp = secButtons:AddToggle("HideWpBtn", {
     Title    = "Show Teleport Button",
     Icon     = "solar/route-bold",
     Default  = true,
@@ -1874,6 +1875,29 @@ secButtons:AddToggle("HideWpBtn", {
     end,
 })
 secButtons:AddDivider()
+
+local secExit = TabSettings:AddSection("Exit")
+task.wait()
+secExit:AddButton({
+    Title    = "🚪 Exit Hakuna Hub",
+    Icon     = "solar/logout-bold",
+    Callback = function()
+        for _, conn in pairs(State.connections) do
+            if conn and conn.Connected then
+                pcall(function() conn:Disconnect() end)
+            end
+        end
+        for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
+            if gui:IsA("ScreenGui") and (gui.Name == "OpenUi" or gui.Name == "WaypointTeleportBtn" or gui.Name == "FPSCounterGui") then
+                gui:Destroy()
+            end
+        end
+        pcall(function() Window:Destroy() end)
+        _G.HakunaHubLoaded = nil
+        Fluent = nil
+    end,
+})
+secExit:AddDivider()
 
 local secAntiAFK = TabSettings:AddSection("Anti-AFK")
 
@@ -2175,6 +2199,17 @@ wpBtn.MouseButton1Click:Connect(function()
     end
     root.CFrame = State.waypointCFrame
 end)
+
+-- Apply saved button visibility after buttons exist
+task.wait()
+if btnToggles.ui and not btnToggles.ui.Value then
+    local g = LocalPlayer.PlayerGui:FindFirstChild("OpenUi")
+    if g then local b = g:FindFirstChild("OpenButton") if b then b.Visible = false end end
+end
+if btnToggles.wp and not btnToggles.wp.Value then
+    local g = LocalPlayer.PlayerGui:FindFirstChild("WaypointTeleportBtn")
+    if g then local b = g:FindFirstChild("WaypointBtn") if b then b.Visible = false end end
+end
 
 -- =================== GLOBAL INPUT HANDLER ===================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
