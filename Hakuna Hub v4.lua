@@ -2036,6 +2036,81 @@ FloatingButtonManager:AddButton("OpenUiBtn", mainBtn, false, false, nil, mainBtn
 FloatingButtonManager:BuildConfigSection(TabSettings)
 FloatingButtonManager:LoadAutoloadConfig()
 
+-- =================== WAYPOINT TELEPORT FLOATING BUTTON (MOBILE SHORTCUT) ===================
+local wpGui = Instance.new("ScreenGui")
+wpGui.Name = "WaypointTeleportBtn"
+wpGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+wpGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+wpGui.ResetOnSpawn = false
+
+local wpBtn = Instance.new("ImageButton")
+wpBtn.Name = "WaypointBtn"
+wpBtn.Parent = wpGui
+wpBtn.BackgroundTransparency = 1
+wpBtn.Position = UDim2.new(0.85, 0, 0.75, 0)
+wpBtn.Size = UDim2.new(0, 55, 0, 55)
+wpBtn.Image = "rbxassetid://87807738555121"
+wpBtn.Visible = true
+
+Instance.new("UICorner", wpBtn).CornerRadius = UDim.new(1, 0)
+
+do
+    local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
+    local holdingDrag, holdToken = false, 0
+    wpBtn:SetAttribute("Locked", false)
+    local function Update(input)
+        if wpBtn:GetAttribute("Locked") then return end
+        local delta = input.Position - dragStart
+        wpBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+    local function ToggleLock()
+        local newState = not wpBtn:GetAttribute("Locked")
+        wpBtn:SetAttribute("Locked", newState)
+        Fluent:Notify({ Title = newState and "Waypoint Locked" or "Waypoint Unlocked", Content = newState and "Button locked in place." or "Button can be moved.", Duration = 2 })
+    end
+    wpBtn.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        dragging = not wpBtn:GetAttribute("Locked")
+        holdingDrag = true
+        dragStart = input.Position
+        startPos = wpBtn.Position
+        holdToken += 1
+        local token = holdToken
+        task.delay(1.0, function() if holdingDrag and token == holdToken then ToggleLock() end end)
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false holdingDrag = false end
+        end)
+    end)
+    wpBtn.InputChanged:Connect(function(input)
+        if not dragStart then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            if (input.Position - dragStart).Magnitude > 6 then holdingDrag = false end
+            dragInput = input
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then Update(input) end
+    end)
+end
+
+wpBtn.MouseButton1Click:Connect(function()
+    if not State.waypointCFrame then
+        Notify("Waypoint", "No Waypoint Set", 2)
+        return
+    end
+    local char = LocalPlayer.Character
+    if not char then
+        Notify("Error", "Character not found", 2)
+        return
+    end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        Notify("Error", "HumanoidRootPart not found", 2)
+        return
+    end
+    root.CFrame = State.waypointCFrame
+end)
+
 -- =================== GLOBAL INPUT HANDLER ===================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
