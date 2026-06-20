@@ -24,6 +24,7 @@ local safeZoneCenter = nil
 local safeZoneBoxSize = Vector3.new(20, 20, 20)
 
 local function StartHub()
+    task.wait()
     local originalNotify = Fluent.Notify
     function Fluent:Notify(data)
         if not isLoaded then return end
@@ -386,9 +387,13 @@ end)
 
 -- =================== TABS ===================
 local TabMain = Window:AddTab({ Title = "Main", Icon = "solar/home-bold" })
+task.wait()
 local TabPlayers = Window:AddTab({ Title = "Players", Icon = "solar/user-bold" })
+task.wait()
 local TabTeleport = Window:AddTab({ Title = "Teleport", Icon = "solar/route-bold" })
+task.wait()
 local TabSettings = Window:AddTab({ Title = "Settings", Icon = "solar/settings-bold" })
+task.wait()
 
 -- =================== HELPER NOTIFY ===================
 local _notifyCooldowns = {}
@@ -411,9 +416,9 @@ end
 
 -- =================== FORWARD DECLARATIONS ===================
 local StartFly, StopFly
-
 -- =================== MAIN TAB (HAKUNA FEATURES) ===================
 local secMovement = TabMain:AddSection("Movement")
+task.wait()
 
 secMovement:AddSlider("WalkSpeedSlider", {
     Title    = "WalkSpeed",
@@ -480,6 +485,7 @@ secMovement:AddToggle("UnlimitedJump", {
 })
 secMovement:AddDivider()
 
+task.wait()
 -- ---- FLY ----
 local secFly = TabMain:AddSection("Fly")
 
@@ -654,6 +660,7 @@ local flyUIToggle = secFly:AddToggle("FlyToggle", {
 State.flyToggleObj = flyUIToggle
 secFly:AddDivider()
 
+task.wait()
 -- ---- NOCLIP ----
 local secNoclip = TabMain:AddSection("NoClip")
 
@@ -778,6 +785,7 @@ secNoclip:AddToggle("GlobalNoclip", {
 })
 secNoclip:AddDivider()
 
+task.wait()
 -- ---- ANTI-FLING ----
 local secAntiFling = TabMain:AddSection("Anti-Fling")
 
@@ -851,6 +859,7 @@ secAntiFling:AddToggle("AntiFlingToggle", {
 })
 secAntiFling:AddDivider()
 
+task.wait()
 -- ---- ESP ----
 local secESP = TabMain:AddSection("ESP")
 
@@ -1001,6 +1010,7 @@ local function TeleportToPlayer(targetPlayer)
     end
 end
 
+task.wait()
 TabPlayers:AddSection("Players List")
 
 local PlayerSearchInput = TabPlayers:AddInput("PlayerSearch", {
@@ -1261,6 +1271,7 @@ task.spawn(function()
 end)
 
 -- =================== TELEPORT TAB ===================
+task.wait()
 local secWaypoint = TabTeleport:AddSection("Waypoint")
 
 secWaypoint:AddButton({
@@ -1320,6 +1331,7 @@ waypointKeybind:OnChanged(function()
 end)
 secWaypoint:AddDivider()
 
+task.wait()
 local secClickTP = TabTeleport:AddSection("Click Teleport")
 secClickTP:AddToggle("ClickTeleport", {
     Title    = "Click-to-Teleport (Ctrl + Click)",
@@ -1345,6 +1357,7 @@ secClickTP:AddToggle("ClickTeleport", {
 })
 secClickTP:AddDivider()
 
+task.wait()
 local secAutoReturn = TabTeleport:AddSection("Auto Return")
 
 secAutoReturn:AddSlider("AutoReturnDist", {
@@ -1689,6 +1702,7 @@ local function stopMobileSafeZoneFollow()
     end
 end
 
+task.wait()
 local secSafeZone = TabTeleport:AddSection("Safe Zone")
 secSafeZone:AddToggle("SafeZoneToggle", {
     Title    = "Safe Zone Bunker",
@@ -1762,6 +1776,7 @@ secSafeZone:AddDivider()
 
 
 -- =================== SETTINGS TAB ===================
+task.wait()
 local secDisplay = TabSettings:AddSection("Display")
 
 local FPSGui = Instance.new("ScreenGui")
@@ -1774,10 +1789,9 @@ if not FPSGui.Parent then
 end
 
 local FPSFrame = Instance.new("Frame")
-FPSFrame.Size = UDim2.new(0, 80, 0, 26)
-FPSFrame.Position = UDim2.new(1, -90, 0, 10)
-FPSFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-FPSFrame.BackgroundTransparency = 0.2
+FPSFrame.Size = UDim2.new(0, 80, 0, 20)
+FPSFrame.Position = UDim2.new(1, -90, 0, 2)
+FPSFrame.BackgroundTransparency = 1
 FPSFrame.BorderSizePixel = 0
 FPSFrame.Visible = false
 FPSFrame.Parent = FPSGui
@@ -1786,9 +1800,9 @@ local FPSLabel = Instance.new("TextLabel")
 FPSLabel.Size = UDim2.new(1, 0, 1, 0)
 FPSLabel.BackgroundTransparency = 1
 FPSLabel.Text = "FPS: --"
-FPSLabel.TextColor3 = Color3.new(1, 1, 1)
+FPSLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
 FPSLabel.TextSize = 13
-FPSLabel.Font = Enum.Font.Gotham
+FPSLabel.Font = Enum.Font.GothamBold
 FPSLabel.TextXAlignment = Enum.TextXAlignment.Center
 FPSLabel.Parent = FPSFrame
 
@@ -1831,6 +1845,36 @@ secDisplay:AddToggle("FPSCounterToggle", {
 })
 secDisplay:AddDivider()
 
+task.wait()
+local secButtons = TabSettings:AddSection("Buttons")
+task.wait()
+
+secButtons:AddToggle("HideUiBtn", {
+    Title    = "Show UI Button",
+    Icon     = "solar/menu-bold",
+    Default  = true,
+    Callback = function(v)
+        local gui = LocalPlayer.PlayerGui:FindFirstChild("OpenUi")
+        if gui then
+            local btn = gui:FindFirstChild("OpenButton")
+            if btn then btn.Visible = v end
+        end
+    end,
+})
+secButtons:AddToggle("HideWpBtn", {
+    Title    = "Show Teleport Button",
+    Icon     = "solar/route-bold",
+    Default  = true,
+    Callback = function(v)
+        local gui = LocalPlayer.PlayerGui:FindFirstChild("WaypointTeleportBtn")
+        if gui then
+            local btn = gui:FindFirstChild("WaypointBtn")
+            if btn then btn.Visible = v end
+        end
+    end,
+})
+secButtons:AddDivider()
+
 local secAntiAFK = TabSettings:AddSection("Anti-AFK")
 
 local function enableAntiAFK()
@@ -1860,6 +1904,7 @@ secAntiAFK:AddToggle("AntiAFKToggle", {
 })
 secAntiAFK:AddDivider()
 
+task.wait()
 local secKeybinds2 = TabSettings:AddSection("Keybinds")
 
 secKeybinds2:AddKeybind("ToggleUIKeybind", {
@@ -1943,6 +1988,7 @@ frontImage.Image = "rbxassetid://131680574108351"
 frontImage.ZIndex = 1 
 Instance.new("UICorner", frontImage).CornerRadius = UDim.new(0.2, 0)
 
+--[[ -- rotation loop (disabled for performance)
 local rotation = 0
 local rotSpeed = 90
 local lastTime = tick()
@@ -1959,6 +2005,7 @@ task.spawn(function()
                 task.wait()
         end
 end)
+--]]
 
 local function MakeDraggableOpenUi(topbar, obj)
         local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
@@ -2001,19 +2048,35 @@ end
 MakeDraggableOpenUi(mainBtn, mainBtn)
 
 local uiOpen = true
+local soundBusy = false
 local function playSound(soundId)
-        local sound = Instance.new("Sound")
-        pcall(function() sound.SoundId = "rbxassetid://" .. soundId end)
-        sound.Parent = game:GetService("SoundService")
-        pcall(function() sound:Play() end)
-        sound.Ended:Connect(function() sound:Destroy() end)
+        if soundBusy then return end
+        soundBusy = true
+        pcall(function()
+                local sound = Instance.new("Sound")
+                sound.SoundId = "rbxassetid://" .. soundId
+                sound.Volume = 0.75
+                sound.Parent = workspace
+                sound:Play()
+                task.delay(1.5, function()
+                        pcall(function() sound:Stop() end)
+                        soundBusy = false
+                        pcall(function() sound:Destroy() end)
+                end)
+                local c
+                c = sound.Ended:Connect(function()
+                        c:Disconnect()
+                        soundBusy = false
+                        pcall(function() sound:Destroy() end)
+                end)
+        end)
 end
 
 mainBtn.MouseButton1Click:Connect(function()
-        local sounds = { "7127123605", "438666542" }
-        playSound(sounds[math.random(#sounds)])
-        uiOpen = not uiOpen
+playSound("96100657989254")
+uiOpen = not uiOpen
         if uiOpen then Window:Show() else Window:Hide() end
+        --[[ -- rotation animation (disabled)
         local function smoothSpeed(target, dur)
                 local start = rotSpeed
                 local steps = 30
@@ -2030,6 +2093,7 @@ mainBtn.MouseButton1Click:Connect(function()
                 task.wait(0.3)
                 smoothSpeed(90, 0.4)
         end)
+        --]]
 end)
 
 FloatingButtonManager:AddButton("OpenUiBtn", mainBtn, false, false, nil, mainBtn)
@@ -2094,6 +2158,7 @@ do
 end
 
 wpBtn.MouseButton1Click:Connect(function()
+    playSound("76752236711704")
     if not State.waypointCFrame then
         Notify("Waypoint", "No Waypoint Set", 2)
         return
@@ -2123,7 +2188,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
+    if input.KeyCode == State.toggleKey then
+        playSound("96100657989254")
+    end
+
     if (input.KeyCode == State.waypointKey or input.KeyCode == Enum.KeyCode.ButtonL2) and State.waypointCFrame then
+        playSound("76752236711704")
         local char = LocalPlayer.Character
         if char then
             local root = char:FindFirstChild("HumanoidRootPart")
@@ -2143,12 +2213,14 @@ end
 
 -- Asynchronous loading sequence (non-blocking)
 task.spawn(function()
+    task.wait(0.3)
     local success, err = pcall(function()
         return loadstring(game:HttpGet("https://github.com/StyearX/Fluent-Modded/releases/download/Fluent/FluentPro"))()
     end)
     
     if success and err then
         Fluent = err
+        task.wait()
         local ok, runErr = pcall(StartHub)
         if not ok then
             error("Hakuna Hub init failed: " .. tostring(runErr))
