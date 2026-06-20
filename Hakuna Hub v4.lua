@@ -1848,10 +1848,11 @@ end
 MakeDraggableOpenUi(mainBtn, mainBtn)
 
 local uiOpen = true
-local soundBusy = false
+local soundCooldown = 0
 local function playSound(soundId)
-        if soundBusy then return end
-        soundBusy = true
+        local now = tick()
+        if now - soundCooldown < 0.4 then return end
+        soundCooldown = now
         pcall(function()
                 local sound = Instance.new("Sound")
                 sound.SoundId = "rbxassetid://" .. soundId
@@ -1860,13 +1861,6 @@ local function playSound(soundId)
                 sound:Play()
                 task.delay(1.5, function()
                         pcall(function() sound:Stop() end)
-                        soundBusy = false
-                        pcall(function() sound:Destroy() end)
-                end)
-                local c
-                c = sound.Ended:Connect(function()
-                        c:Disconnect()
-                        soundBusy = false
                         pcall(function() sound:Destroy() end)
                 end)
         end)
@@ -1896,10 +1890,6 @@ uiOpen = not uiOpen
         --]]
 end)
 
-FloatingButtonManager:AddButton("OpenUiBtn", mainBtn, false, false, nil, mainBtn)
-FloatingButtonManager:BuildConfigSection(TabSettings)
-FloatingButtonManager:LoadAutoloadConfig()
-
 -- =================== WAYPOINT TELEPORT FLOATING BUTTON (MOBILE SHORTCUT) ===================
 local wpGui = Instance.new("ScreenGui")
 wpGui.Name = "WaypointTeleportBtn"
@@ -1907,14 +1897,16 @@ wpGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 wpGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 wpGui.ResetOnSpawn = false
 
+local DEFAULT_WP_POS = UDim2.new(0.85, 0, 0.75, 0)
 local wpBtn = Instance.new("ImageButton")
 wpBtn.Name = "WaypointBtn"
 wpBtn.Parent = wpGui
 wpBtn.BackgroundTransparency = 1
-wpBtn.Position = UDim2.new(0.85, 0, 0.75, 0)
 wpBtn.Size = UDim2.new(0, 55, 0, 55)
 wpBtn.Image = "rbxassetid://87807738555121"
 wpBtn.Visible = true
+-- Load saved position or use default
+wpBtn.Position = _G.__WpBtnPos or DEFAULT_WP_POS
 
 Instance.new("UICorner", wpBtn).CornerRadius = UDim.new(1, 0)
 
@@ -1942,7 +1934,7 @@ do
         local token = holdToken
         task.delay(1.0, function() if holdingDrag and token == holdToken then ToggleLock() end end)
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false holdingDrag = false end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false holdingDrag = false _G.__WpBtnPos = wpBtn.Position end
         end)
     end)
     wpBtn.InputChanged:Connect(function(input)
@@ -1956,6 +1948,12 @@ do
         if input == dragInput and dragging then Update(input) end
     end)
 end
+
+-- Register BOTH buttons before building/loading config
+FloatingButtonManager:AddButton("OpenUiBtn", mainBtn, false, false, nil, mainBtn)
+FloatingButtonManager:AddButton("WpBtn", wpBtn, false, false, nil, wpBtn)
+FloatingButtonManager:BuildConfigSection(TabSettings)
+FloatingButtonManager:LoadAutoloadConfig()
 
 wpBtn.MouseButton1Click:Connect(function()
     playSound("76752236711704")
@@ -2040,3 +2038,5 @@ task.spawn(function()
         error("Hakuna Hub load failed: " .. tostring(err))
     end
 end)
+
+-- update
