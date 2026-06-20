@@ -36,7 +36,6 @@ local State = {
     isUnlimitedJump   = false,
     isFlying          = false,
     isSelfNoclip      = false,
-    isGlobalNoclip    = false,
     isClickTeleport   = false,
     isFPSVisible      = false,
     isAntiAFK         = true,
@@ -51,7 +50,6 @@ local State = {
     toggleKey         = Enum.KeyCode.LeftAlt,
     currentWalkSpeed  = 16,
     flyToggleObj      = nil,
-    globalNoclipPlayers = {},
     isAutoReturn      = false,
     autoReturnDistance = 100,
     autoReturnToggleObj = nil,
@@ -133,7 +131,8 @@ local function CreateButton(ButtonName, Name, Size1, Size2, ScriptLogic, CircleM
         Instance.new("UICorner", toggle).CornerRadius = UDim.new(1, 0)
 
         local originalSize = UDim2.new(Size1, 0, Size2, 0)
-        local holding, holdStart, hideAt = false, 0, 0
+        local holding, holdStart = false, 0
+        local hideTask = nil
 
         frame:SetAttribute("IsCircle", false)
         local isCircle = CircleMode ~= nil and CircleMode or frame:GetAttribute("IsCircle")
@@ -162,13 +161,6 @@ local function CreateButton(ButtonName, Name, Size1, Size2, ScriptLogic, CircleM
 
         applyShape(isCircle)
 
-        task.spawn(function()
-                while task.wait(0.25) do
-                        if not frame.Parent then break end
-                        if toggle.Visible and tick() - hideAt >= 10 then toggle.Visible = false end
-                end
-        end)
-
         button.InputBegan:Connect(function(i)
                 if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                         holding = true
@@ -176,18 +168,27 @@ local function CreateButton(ButtonName, Name, Size1, Size2, ScriptLogic, CircleM
                 end
         end)
 
+        local function scheduleHideToggle()
+                if hideTask then hideTask:Cancel() end
+                hideTask = task.delay(10, function()
+                        if toggle and toggle.Parent then
+                                toggle.Visible = false
+                        end
+                end)
+        end
+
         button.InputEnded:Connect(function(i)
                 if holding and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
                         holding = false
                         if tick() - holdStart >= 0.6 then
                                 toggle.Visible = true
-                                hideAt = tick()
+                                scheduleHideToggle()
                         end
                 end
         end)
 
         toggle.MouseButton1Click:Connect(function()
-                hideAt = tick()
+                scheduleHideToggle()
                 applyShape(not frame:GetAttribute("IsCircle"))
         end)
 
@@ -664,58 +665,7 @@ task.wait()
 -- ---- NOCLIP ----
 local secNoclip = TabMain:AddSection("NoClip")
 
-secNoclip:AddToggle("SelfNoclip", {
-    Title    = "Self NoClip",
-    Icon     = "solar/ghost-bold",
-    Default  = false,
-    Callback = function(v)
-        State.isSelfNoclip = v
-        if v then
-            State.connections["selfNoclipLoop"] = RunService.Stepped:Connect(function()
-                if not State.isSelfNoclip then return end
-                local char = LocalPlayer.Character
-                if not char then return end
-                for _, p in ipairs(char:GetChildren()) do
-                    if p:IsA("BasePart") then
-                        p.CanCollide = false
-                    elseif p:IsA("Accessory") then
-                        local handle = p:FindFirstChild("Handle")
-                        if handle and handle:IsA("BasePart") then
-                            handle.CanCollide = false
-                        end
-                    end
-                end
-            end)
-        else
-            Disconnect("selfNoclipLoop")
-            local char = LocalPlayer.Character
-            if char then
-                for _, p in ipairs(char:GetChildren()) do
-                    if p:IsA("BasePart") then
-                        if p.Name == "Head" or p.Name == "Torso" or p.Name == "UpperTorso" or p.Name == "LowerTorso" then
-                            p.CanCollide = true
-                        else
-                            p.CanCollide = false
-                        end
-                    elseif p:IsA("Accessory") then
-                        local handle = p:FindFirstChild("Handle")
-                        if handle and handle:IsA("BasePart") then
-                            handle.CanCollide = false
-                        end
-                    end
-                end
-            end
-        end
-    end,
-})
-
-local function disableCollision(part)
-    if part:IsA("BasePart") and part.CanCollide then
-        part.CanCollide = false
-    end
-end
-
-local function trackCharacter(char)
+local function selfNoClipTrackCharacter(char)
     for _, p in ipairs(char:GetChildren()) do
         if p:IsA("BasePart") then
             p.CanCollide = false
@@ -738,51 +688,41 @@ local function trackCharacter(char)
     end)
 end
 
-local function trackPlayer(player)
-    if player == LocalPlayer then return end
-    if player.Character then
-        trackCharacter(player.Character)
-    end
-    player.CharacterAdded:Connect(trackCharacter)
-    State.globalNoclipPlayers[player] = true
-end
-
-secNoclip:AddToggle("GlobalNoclip", {
-    Title    = "Global NoCollide",
-    Icon     = "solar/users-group-rounded-bold",
+secNoclip:AddToggle("SelfNoclip", {
+    Title    = "Self NoClip",
+    Icon     = "solar/ghost-bold",
     Default  = false,
     Callback = function(v)
-        State.isGlobalNoclip = v
+        State.isSelfNoclip = v
         if v then
-            for _, player in ipairs(Players:GetPlayers()) do
-                trackPlayer(player)
+            local char = LocalPlayer.Character
+            if char then
+                selfNoClipTrackCharacter(char)
             end
-            State.connections["globalNoclipPlayerAdded"] = Players.PlayerAdded:Connect(trackPlayer)
-            State.connections["globalNoclipLoop"] = RunService.Stepped:Connect(function()
-                if not State.isGlobalNoclip then return end
-                for player, _ in pairs(State.globalNoclipPlayers) do
-                    local char = player.Character
-                    if char then
-                        for _, p in ipairs(char:GetChildren()) do
-                            if p:IsA("BasePart") then
-                                p.CanCollide = false
-                            elseif p:IsA("Accessory") then
-                                local handle = p:FindFirstChild("Handle")
-                                if handle and handle:IsA("BasePart") then
-                                    handle.CanCollide = false
-                                end
-                            end
+            State.connections["selfNoClipCharAdded"] = LocalPlayer.CharacterAdded:Connect(selfNoClipTrackCharacter)
+        else
+            Disconnect("selfNoClipCharAdded")
+            local char = LocalPlayer.Character
+            if char then
+                for _, p in ipairs(char:GetChildren()) do
+                    if p:IsA("BasePart") then
+                        if p.Name == "Head" or p.Name == "Torso" or p.Name == "UpperTorso" or p.Name == "LowerTorso" then
+                            p.CanCollide = true
+                        else
+                            p.CanCollide = false
+                        end
+                    elseif p:IsA("Accessory") then
+                        local handle = p:FindFirstChild("Handle")
+                        if handle and handle:IsA("BasePart") then
+                            handle.CanCollide = false
                         end
                     end
                 end
-            end)
-        else
-            Disconnect("globalNoclipPlayerAdded")
-            Disconnect("globalNoclipLoop")
-            State.globalNoclipPlayers = {}
+            end
         end
     end,
 })
+
 secNoclip:AddDivider()
 
 task.wait()
@@ -832,27 +772,8 @@ secAntiFling:AddToggle("AntiFlingToggle", {
                 antiFlingTrackPlayer(player)
             end
             State.connections["antiFlingPlayerAdded"] = Players.PlayerAdded:Connect(antiFlingTrackPlayer)
-            State.connections["antiFlingLoop"] = RunService.Stepped:Connect(function()
-                if not State.isAntiFling then return end
-                for player, _ in pairs(State.antiFlingPlayers) do
-                    local character = player.Character
-                    if character then
-                        for _, p in ipairs(character:GetChildren()) do
-                            if p:IsA("BasePart") then
-                                p.CanCollide = false
-                            elseif p:IsA("Accessory") then
-                                local handle = p:FindFirstChild("Handle")
-                                if handle and handle:IsA("BasePart") then
-                                    handle.CanCollide = false
-                                end
-                            end
-                        end
-                    end
-                end
-            end)
         else
             Disconnect("antiFlingPlayerAdded")
-            Disconnect("antiFlingLoop")
             State.antiFlingPlayers = {}
         end
     end,
@@ -865,20 +786,23 @@ local secESP = TabMain:AddSection("ESP")
 
 local espEnabled = false
 local espConnections = {}
-local espLoopRunning = false
+local espPlayerConns = {}
 
 local function ESPCleanup()
-    espLoopRunning = false
     for _, conn in pairs(espConnections) do
-        if conn then
-            if typeof(conn) == "RBXScriptConnection" and conn.Connected then
-                conn:Disconnect()
-            elseif type(conn) == "table" and type(conn.Disconnect) == "function" then
+        if conn and conn.Connected then
+            conn:Disconnect()
+        end
+    end
+    espConnections = {}
+    for _, conns in pairs(espPlayerConns) do
+        for _, conn in pairs(conns) do
+            if conn and conn.Connected then
                 conn:Disconnect()
             end
         end
     end
-    espConnections = {}
+    espPlayerConns = {}
     for _, v in pairs(Players:GetPlayers()) do
         if v ~= LocalPlayer and v.Character then
             local hl = v.Character:FindFirstChild("GetReal")
@@ -922,21 +846,55 @@ local function ESPStart()
         end
     end
 
-    updateAll()
-    espLoopRunning = true
-    task.spawn(function()
-        while espLoopRunning and espEnabled do
-            task.wait()
-            if not espEnabled then break end
+    local function trackESPPlayer(player)
+        if player == plr then return end
+        local conns = {}
+        conns.characterAdded = player.CharacterAdded:Connect(function()
+            task.wait(0.5)
             updateAll()
+        end)
+        conns.teamColor = player:GetPropertyChangedSignal("TeamColor"):Connect(updateAll)
+        if player.Character then
+            conns.characterAdornee = player.Character:GetPropertyChangedSignal("Parent"):Connect(function()
+                if not player.Character then
+                    task.wait(0.5)
+                    updateAll()
+                end
+            end)
         end
-    end)
+        espPlayerConns[player] = conns
+    end
+
+    updateAll()
+
+    for _, v in pairs(Players:GetPlayers()) do
+        trackESPPlayer(v)
+    end
 
     local c1 = Players.PlayerAdded:Connect(function(v)
+        trackESPPlayer(v)
         task.wait(0.5)
         updateAll()
     end)
     table.insert(espConnections, c1)
+
+    local c2 = Players.PlayerRemoving:Connect(function(v)
+        if v.Character then
+            local hl = v.Character:FindFirstChild("GetReal")
+            if hl then hl:Destroy() end
+        end
+        local conns = espPlayerConns[v]
+        if conns then
+            for _, conn in pairs(conns) do
+                if conn and conn.Connected then
+                    conn:Disconnect()
+                end
+            end
+            espPlayerConns[v] = nil
+        end
+        updateAll()
+    end)
+    table.insert(espConnections, c2)
 end
 
 secESP:AddToggle("ESPToggle", {
@@ -1547,160 +1505,7 @@ local function stopSafeZoneKeepInside()
     end
 end
 
--- =================== MOBILE SAFE ZONE BUNKER LOGIC ===================
-local mobileSafeZoneHeightOffset = 7
-local mobileSafeZoneBoxSize = Vector3.new(20, 20, 20)
-local mobileSafeZoneParts = {}
-local mobileSafeZoneCenter = nil
-local mobileSafeZoneConn = nil
 
-local function destroyMobileSafeZone()
-    for _, part in ipairs(mobileSafeZoneParts) do
-        if part and part.Parent then
-            part:Destroy()
-        end
-    end
-    table.clear(mobileSafeZoneParts)
-    mobileSafeZoneCenter = nil
-end
-
-local function createMobileSafeZoneBox(center)
-    destroyMobileSafeZone()
-    
-    local char = LocalPlayer.Character
-    local charSize = char and char:GetExtentsSize() or Vector3.new(4, 6, 2)
-    mobileSafeZoneBoxSize = charSize + Vector3.new(15, 10, 15)
-    mobileSafeZoneCenter = center
-    local half = mobileSafeZoneBoxSize / 2
-
-    local model = Instance.new("Model")
-    model.Name = "MobileSafeZone"
-    model.Parent = workspace
-    table.insert(mobileSafeZoneParts, model)
-
-    -- Floor
-    local floor = Instance.new("Part")
-    floor.Name = "SafeZoneFloor"
-    floor.Anchored = true
-    floor.CanCollide = false
-    floor.Material = Enum.Material.ForceField
-    floor.Color = Color3.fromRGB(255, 255, 0)
-    floor.Shape = Enum.PartType.Block
-    floor.Size = Vector3.new(mobileSafeZoneBoxSize.X, 1, mobileSafeZoneBoxSize.Z)
-    floor.Position = Vector3.new(0, -half.Y, 0)
-    floor.Transparency = 0.7
-    floor.Parent = model
-    table.insert(mobileSafeZoneParts, floor)
-
-    -- Ceiling
-    local ceiling = Instance.new("Part")
-    ceiling.Name = "SafeZoneCeiling"
-    ceiling.Anchored = true
-    ceiling.CanCollide = false
-    ceiling.Material = Enum.Material.ForceField
-    ceiling.Color = Color3.fromRGB(255, 255, 0)
-    ceiling.Shape = Enum.PartType.Block
-    ceiling.Size = Vector3.new(mobileSafeZoneBoxSize.X, 1, mobileSafeZoneBoxSize.Z)
-    ceiling.Position = Vector3.new(0, half.Y, 0)
-    ceiling.Transparency = 0.85
-    ceiling.Parent = model
-    table.insert(mobileSafeZoneParts, ceiling)
-
-    -- Walls
-    local wallThickness = 1
-    local walls = {
-        { offset = Vector3.new(0, 0, -half.Z), size = Vector3.new(mobileSafeZoneBoxSize.X, mobileSafeZoneBoxSize.Y, wallThickness) },
-        { offset = Vector3.new(0, 0,  half.Z), size = Vector3.new(mobileSafeZoneBoxSize.X, mobileSafeZoneBoxSize.Y, wallThickness) },
-        { offset = Vector3.new(-half.X, 0, 0), size = Vector3.new(wallThickness, mobileSafeZoneBoxSize.Y, mobileSafeZoneBoxSize.Z) },
-        { offset = Vector3.new( half.X, 0, 0), size = Vector3.new(wallThickness, mobileSafeZoneBoxSize.Y, mobileSafeZoneBoxSize.Z) },
-    }
-    for _, wallData in ipairs(walls) do
-        local wall = Instance.new("Part")
-        wall.Name = "SafeZoneWall"
-        wall.Anchored = true
-        wall.CanCollide = false
-        wall.Material = Enum.Material.ForceField
-        wall.Color = Color3.fromRGB(255, 255, 0)
-        wall.Shape = Enum.PartType.Block
-        wall.Size = wallData.size
-        wall.Position = wallData.offset
-        wall.Transparency = 0.85
-        wall.Parent = model
-        table.insert(mobileSafeZoneParts, wall)
-    end
-
-    -- Highlight the entire model
-    local highlight = Instance.new("Highlight")
-    highlight.FillColor = Color3.fromRGB(255, 255, 0)
-    highlight.FillTransparency = 0.7
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.OutlineTransparency = 0.2
-    highlight.Parent = model
-    table.insert(mobileSafeZoneParts, highlight)
-
-    model:PivotTo(CFrame.new(center))
-end
-
-local function startMobileSafeZoneFollow()
-    if mobileSafeZoneConn then return end
-    mobileSafeZoneConn = RunService.Heartbeat:Connect(function()
-        local char = LocalPlayer.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-
-        table.insert(ignoreList, char)
-        raycastParams.FilterDescendantsInstances = ignoreList
-        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-
-        local raycastResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-        
-        -- Find the floor part to toggle collision dynamically
-        local floorPart
-        for _, part in ipairs(mobileSafeZoneParts) do
-            if part and part.Name == "SafeZoneFloor" then
-                floorPart = part
-                break
-            end
-        end
-
-        local targetY
-        if raycastResult then
-            -- On the ground, lock Y position to the ground to completely block floating feedback loop
-            targetY = raycastResult.Position.Y + half.Y
-            if floorPart then
-                floorPart.CanCollide = true
-            end
-        else
-            -- Flying or in the air, center on player and make the floor non-collidable to prevent floating loops
-            targetY = currentPos.Y
-            if floorPart then
-                floorPart.CanCollide = false
-            end
-        end
-
-        local newCenter = Vector3.new(currentPos.X, targetY, currentPos.Z)
-        mobileSafeZoneCenter = newCenter
-
-        local model
-        for _, part in ipairs(mobileSafeZoneParts) do
-            if part and part:IsA("Model") then
-                model = part
-                break
-            end
-        end
-        if model and model.Parent then
-            model:PivotTo(CFrame.new(newCenter))
-        end
-    end)
-end
-
-local function stopMobileSafeZoneFollow()
-    if mobileSafeZoneConn then
-        mobileSafeZoneConn:Disconnect()
-        mobileSafeZoneConn = nil
-    end
-end
 
 task.wait()
 local secSafeZone = TabTeleport:AddSection("Safe Zone")
@@ -1744,36 +1549,7 @@ secSafeZone:AddToggle("SafeZoneToggle", {
     end,
 })
 
-secSafeZone:AddToggle("MobileSafeZoneToggle", {
-    Title    = "Mobile Safe Zone (Follows You)",
-    Icon     = "solar/shield-up-bold",
-    Default  = false,
-    Callback = function(v)
-        if v then
-            local char = LocalPlayer.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                Notify("Mobile Safe Zone", "Character not found!", 2)
-                local opt = Window.Options and Window.Options.MobileSafeZoneToggle
-                if opt then task.spawn(function() opt:SetValue(false) end) end
-                return
-            end
-
-            local hrp = char.HumanoidRootPart
-            local currentPos = hrp.Position
-
-            createMobileSafeZoneBox(currentPos)
-            startMobileSafeZoneFollow()
-            Notify("Mobile Safe Zone", "Created and following you!", 2)
-        else
-            stopMobileSafeZoneFollow()
-            destroyMobileSafeZone()
-            Notify("Mobile Safe Zone", "Deactivated", 2)
-        end
-    end,
-})
-
 secSafeZone:AddDivider()
-
 
 -- =================== SETTINGS TAB ===================
 task.wait()
